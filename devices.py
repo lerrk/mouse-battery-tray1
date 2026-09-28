@@ -5,7 +5,7 @@ from typing import Optional, Tuple, List
 # =============================================================================
 # Supported Standard Devices (Beken, CompX, Pulsar, etc.)
 # =============================================================================
-SUPPORTED_VIDS = {0x1d57, 0x25a7, 0x3710, 0x258a, 0x0c45, 0x093a, 0x24ae, 0x1bcf, 0x3554, 0x320f, 0x3537, 0x3770, 0x1532}
+SUPPORTED_VIDS = {0x1d57, 0x25a7, 0x3710, 0x258a, 0x0c45, 0x093a, 0x24ae, 0x1bcf, 0x3554, 0x320f, 0x3537, 0x3770, 0x1532, 0x373b}
 
 BEKEN_DEVICE_NAMES = {
     0x55: "Attack Shark X11",
@@ -71,6 +71,10 @@ SUPPORTED_DEVICES = {
     (0x3554, 0xfb3d): ("VGN Gaming Mouse Y2 Ultra", "wired"),
     0xfb3e: ("VGN Gaming Mouse Y2 Ultra", "wireless"),
     0xfb3d: ("VGN Gaming Mouse Y2 Ultra", "wired"),
+
+    # MAD 1K Dongle (Compx). Battery is read via the query-based ATK config channel.
+    (0x373b, 0x104d): ("MAD 1K Dongle", "wireless"),
+    0x104d: ("MAD 1K Dongle", "wireless"),
 
     # Razer HyperPolling / Mouse Series (Thanks to u/MarcBelmaati)
     (0x1532, 0x00b3): ("Razer HyperPolling Dongle", "wireless"),
@@ -352,19 +356,20 @@ def read_razer_battery(path: str) -> Tuple[Optional[int], Optional[bool]]:
 
 
 # =============================================================================
-# VGN / Compx "ATK-style" query protocol (battery must be requested)
+# VGN / MAD / Compx "ATK-style" query protocol (battery must be requested)
 # Interface: usage_page 0xff02, usage 0x02, report ID 0x08, 17-byte frames.
 # Frame: [id, cmd, status, 0, 0, declared_len, data..., pad..., checksum]
 # checksum = (0x55 - sum(first 16 bytes)) & 0xFF
 # Battery (cmd 0x04) reply data: [percent, charging_flag, ...]
 # =============================================================================
-ATK_VID = 0x3554
 ATK_REPORT_ID = 0x08
 ATK_CMD_BATTERY = 0x04
 ATK_QUERY_DEVICES = {
-    0xfb3e: ("VGN Gaming Mouse Y2 Ultra", "wireless"),
-    0xfb3d: ("VGN Gaming Mouse Y2 Ultra", "wired"),
+    (0x3554, 0xfb3e): ("VGN Gaming Mouse Y2 Ultra", "wireless"),
+    (0x3554, 0xfb3d): ("VGN Gaming Mouse Y2 Ultra", "wired"),
+    (0x373b, 0x104d): ("MAD 1K Dongle", "wireless"),
 }
+ATK_VIDS = {vid for vid, _ in ATK_QUERY_DEVICES}
 
 
 def _atk_build_frame(cmd: int) -> List[int]:
@@ -391,12 +396,13 @@ def _atk_parse_battery(resp: List[int]) -> Tuple[Optional[int], Optional[bool]]:
 
 
 def find_atk_query_device() -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Return (path, mode, model_name) of the VGN config interface, if present."""
-    for d in hid.enumerate(ATK_VID):
-        pid = d['product_id']
-        if pid in ATK_QUERY_DEVICES and d.get('usage_page') == 0xff02 and d.get('usage') == 2:
-            name, mode = ATK_QUERY_DEVICES[pid]
-            return d['path'], mode, name
+    """Return (path, mode, model_name) of a query-based config interface, if present."""
+    for vid in ATK_VIDS:
+        for d in hid.enumerate(vid):
+            key = (vid, d['product_id'])
+            if key in ATK_QUERY_DEVICES and d.get('usage_page') == 0xff02 and d.get('usage') == 2:
+                name, mode = ATK_QUERY_DEVICES[key]
+                return d['path'], mode, name
     return None, None, None
 
 
