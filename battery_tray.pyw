@@ -32,6 +32,8 @@ from updater import (
 )
 from devices import (
     find_device_path,
+    find_atk_query_device,
+    read_atk_battery,
     find_wlmouse,
     read_wlmouse_battery,
     find_razer,
@@ -340,6 +342,22 @@ class BatteryTrayApp:
             if time.time() - self.last_update_check_time >= 86400:
                 self.last_update_check_time = time.time()
                 self.check_for_updates(manual=False)
+
+            atk_path, atk_mode, atk_name = find_atk_query_device()
+            if atk_path:
+                self.current_model = atk_name
+                battery, charging = read_atk_battery(atk_path)
+                if battery is not None:
+                    self.update_battery_level(battery, bool(charging))
+                elif atk_mode == "wired":
+                    if self.status != "charging":
+                        self.status = "charging"
+                        self.update_tray()
+                elif self.last_battery < 0 or self.status == "disconnected":
+                    self.status = "unknown"
+                    self.update_tray()
+                time.sleep(10)
+                continue
 
             path, mode, model_name = find_device_path()
             if path:

@@ -65,6 +65,13 @@ SUPPORTED_DEVICES = {
     0x522c: ("Incott G24 Pro", "wireless"),
     0x622c: ("Incott G24 Pro", "wired"),
 
+    # VGN Gaming Mouse Y2 Ultra (Compx). 0xfb3e = 2.4G receiver, 0xfb3d = wired.
+    # Battery is read via the query-based ATK config channel (see read_atk_battery).
+    (0x3554, 0xfb3e): ("VGN Gaming Mouse Y2 Ultra", "wireless"),
+    (0x3554, 0xfb3d): ("VGN Gaming Mouse Y2 Ultra", "wired"),
+    0xfb3e: ("VGN Gaming Mouse Y2 Ultra", "wireless"),
+    0xfb3d: ("VGN Gaming Mouse Y2 Ultra", "wired"),
+
     # Razer HyperPolling / Mouse Series (Thanks to u/MarcBelmaati)
     (0x1532, 0x00b3): ("Razer HyperPolling Dongle", "wireless"),
     (0x1532, 0x00a5): ("Razer Mouse", "wired"),
@@ -343,3 +350,86 @@ def read_razer_battery(path: str) -> Tuple[Optional[int], Optional[bool]]:
         except Exception:
             pass
 
+
+# =============================================================================
+# VGN / Compx "ATK-style" query protocol (battery must be requested)
+# Interface: usage_page 0xff02, usage 0x02, report ID 0x08, 17-byte frames.
+# Frame: [id, cmd, status, 0, 0, declared_len, data..., pad..., checksum]
+# checksum = (0x55 - sum(first 16 bytes)) & 0xFF
+# Battery (cmd 0x04) reply data: [percent, charging_flag, ...]
+# =============================================================================
+ATK_VID = 0x3554
+ATK_REPORT_ID = 0x08
+ATK_CMD_BATTERY = 0x04
+ATK_QUERY_DEVICES = {
+    0xfb3e: ("VGN Gaming Mouse Y2 Ultra", "wireless"),
+    0xfb3d: ("VGN Gaming Mouse Y2 Ultra", "wired"),
+}
+
+
+def _atk_build_frame(cmd: int) -> List[int]:
+    frame = [ATK_REPORT_ID, cmd] + [0x00] * 14
+    frame.append((0x55 - sum(frame)) & 0xFF)
+    return frame
+
+
+def _atk_parse_battery(resp: List[int]) -> Tuple[Optional[int], Optional[bool]]:
+    if len(resp) < 17 or resp[0] != ATK_REPORT_ID or resp[1] != ATK_CMD_BATTERY:
+        return None, None
+    if ((0x55 - sum(resp[:16])) & 0xFF) != resp[16]:
+        return None, None
+    if resp[2] != 0x00:  # non-zero status = error / not ready
+        return None, None
+    declared = resp[5]
+    if declared < 1:
+        return None, None
+    percent = resp[6]
+    if not 0 <= percent <= 100:
+        return None, None
+    charging = bool(resp[7]) if declared >= 2 else False
+    return percent, charging
+
+
+def find_atk_query_device() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return (path, mode, model_name) of the VGN config interface, if present."""
+    for d in hid.enumerate(ATK_VID):
+        pid = d['product_id']
+        if pid in ATK_QUERY_DEVICES and d.get('usage_page') == 0xff02 and d.get('usage') == 2:
+            name, mode = ATK_QUERY_DEVICES[pid]
+            return d['path'], mode, name
+    return None, None, None
+
+
+def read_atk_battery(path, attempts: int = 3) -> Tuple[Optional[int], Optional[bool]]:
+    """Request battery over the config channel. Returns (percent, charging) or (None, None)."""
+    try:
+        dev = hid.device()
+        dev.open_path(path.encode('utf-8') if isinstance(path, str) else path)
+    except OSError:
+        return None, None
+    try:
+        frame = _atk_build_frame(ATK_CMD_BATTERY)
+        for _ in range(attempts):
+            try:
+                while dev.read(64, 1):  # drop stale reports
+                    pass
+                dev.write(frame)
+            except OSError:
+                return None, None
+            deadline = time.time() + 1.0
+            while time.time() < deadline:
+                try:
+                    data = dev.read(64, 100)
+                except OSError:
+                    return None, None
+                if data:
+                    percent, charging = _atk_parse_battery(list(data))
+                    if percent is not None:
+                        return percent, charging
+            time.sleep(0.3)
+        return None, None
+    finally:
+        try:
+            dev.close()
+        except Exception:
+            pass
