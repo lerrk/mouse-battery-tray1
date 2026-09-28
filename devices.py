@@ -72,9 +72,9 @@ SUPPORTED_DEVICES = {
     0xfb3e: ("VGN Gaming Mouse Y2 Ultra", "wireless"),
     0xfb3d: ("VGN Gaming Mouse Y2 Ultra", "wired"),
 
-    # MAD 1K Dongle (Compx). Battery is read via the query-based ATK config channel.
-    (0x373b, 0x104d): ("MAD 1K Dongle", "wireless"),
-    0x104d: ("MAD 1K Dongle", "wireless"),
+    # MAD G via MAD 1K Dongle (Compx). Battery is read via the query-based ATK config channel.
+    (0x373b, 0x104d): ("MAD G", "wireless"),
+    0x104d: ("MAD G", "wireless"),
 
     # Razer HyperPolling / Mouse Series (Thanks to u/MarcBelmaati)
     (0x1532, 0x00b3): ("Razer HyperPolling Dongle", "wireless"),
@@ -367,7 +367,7 @@ ATK_CMD_BATTERY = 0x04
 ATK_QUERY_DEVICES = {
     (0x3554, 0xfb3e): ("VGN Gaming Mouse Y2 Ultra", "wireless"),
     (0x3554, 0xfb3d): ("VGN Gaming Mouse Y2 Ultra", "wired"),
-    (0x373b, 0x104d): ("MAD 1K Dongle", "wireless"),
+    (0x373b, 0x104d): ("MAD G", "wireless"),
 }
 ATK_VIDS = {vid for vid, _ in ATK_QUERY_DEVICES}
 
